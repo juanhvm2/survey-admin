@@ -1,0 +1,48 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+       function isAdmin() {
+      return request.auth != null
+        && (request.auth.token.admin == true
+            || request.auth.token.email == 'juanvegamaza2@gmail.com');
+    }
+
+    function surveyIsActive(sid) {
+      return get(/databases/$(database)/documents/surveys/$(sid)).data.status == 'active';
+    }
+
+    function isValidResponse() {
+      return request.resource.data.keys().hasAll(['answers', 'respondentId', 'createdAt'])
+        && request.resource.data.answers is map
+        && request.resource.data.respondentId is string
+        && request.resource.data.respondentId.size() > 0
+        && request.resource.data.respondentId.size() <= 64;
+    }
+
+    match /surveys/{surveyId} {
+      // Leer UNA encuesta: admin siempre; público solo si NO es borrador
+      allow get: if isAdmin() || resource.data.status != 'draft';
+      // Listar TODAS las encuestas: solo admin
+      allow list: if isAdmin();
+      // Crear / editar / eliminar encuestas: solo admin
+      allow create, update, delete: if isAdmin();
+
+      match /responses/{responseId} {
+        // Ver o borrar respuestas: solo admin
+        allow read, delete: if isAdmin();
+        // El público solo puede CREAR respuestas, y solo si la encuesta está ACTIVA
+        allow create: if request.auth == null
+                      && surveyIsActive(surveyId)
+                      && isValidResponse();
+        // Nadie puede editar una respuesta ya enviada
+        allow update: if false;
+      }
+    }
+
+    // Todo lo demás: bloqueado
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
